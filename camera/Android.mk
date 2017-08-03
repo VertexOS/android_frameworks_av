@@ -14,6 +14,7 @@
 
 CAMERA_CLIENT_LOCAL_PATH:= $(call my-dir)
 include $(call all-subdir-makefiles)
+ifeq ($(TARGET_SPECIFIC_CAMERA_RUNTIME_LIBRARY),)
 include $(CLEAR_VARS)
 
 LOCAL_PATH := $(CAMERA_CLIENT_LOCAL_PATH)
@@ -92,3 +93,4 @@ LOCAL_SRC_FILES := \
 LOCAL_MODULE := libcamera_parameters
 
 include $(BUILD_STATIC_LIBRARY)
+endif

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+ifeq ($(TARGET_SPECIFIC_CAMERA_RUNTIME_LIBRARY),)
 LOCAL_PATH:= $(call my-dir)
 
 #
@@ -87,3 +88,4 @@ endif
 LOCAL_MODULE:= libcameraservice
 
 include $(BUILD_SHARED_LIBRARY)
+endif

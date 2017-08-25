@@ -19,6 +19,7 @@
 #include <inttypes.h>
 #include <utils/Log.h>
 
+#include <cutils/properties.h>
 #include <inttypes.h>
 #include "WebmWriter.h"
 #include "StagefrightRecorder.h"
@@ -1464,7 +1465,7 @@ status_t StagefrightRecorder::setupCameraSource(
     Size videoSize;
     videoSize.width = mVideoWidth;
     videoSize.height = mVideoHeight;
-    if (mCaptureFpsEnable) {
+    if (mCaptureFpsEnable && mCaptureFps != mFrameRate ) {
         if (mTimeBetweenCaptureUs < 0) {
             ALOGE("Invalid mTimeBetweenTimeLapseFrameCaptureUs value: %" PRId64 "",
                 mTimeBetweenCaptureUs);
@@ -1477,10 +1478,11 @@ status_t StagefrightRecorder::setupCameraSource(
                 mTimeBetweenCaptureUs);
         *cameraSource = mCameraSourceTimeLapse;
     } else {
-        *cameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
+        mCameraSource = AVFactory::get()->CreateCameraSourceFromCamera(
                 mCamera, mCameraProxy, mCameraId, mClientName, mClientUid, mClientPid,
                 videoSize, mFrameRate,
                 mPreviewSurface);
+        *cameraSource = mCameraSource;
     }
     AVUtils::get()->cacheCaptureBuffers(mCamera, mVideoEncoder);
     mCamera.clear();
@@ -1609,6 +1611,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
             preferBFrames = false;
             tsLayers = 2; // use at least two layers as resulting video will likely be sped up
         } else if (mCaptureFps > maxPlaybackFps) { // slow-mo
+            format->setInt32("high-frame-rate", 1);
             maxPlaybackFps = mCaptureFps; // assume video will be played back at full capture speed
             preferBFrames = false;
         }
@@ -1882,6 +1885,13 @@ status_t StagefrightRecorder::stop() {
         mCameraSourceTimeLapse = NULL;
     }
 
+    if (mVideoEncoderSource != NULL) {
+        mVideoEncoderSource->notifyPerformanceMode();
+    }
+    if (mCameraSource != NULL) {
+        mCameraSource->notifyPerformanceMode();
+    }
+
     if (mWriter != NULL) {
         err = mWriter->stop();
         mWriter.clear();
@@ -1960,6 +1970,7 @@ status_t StagefrightRecorder::reset() {
     mCaptureFps = 0.0f;
     mTimeBetweenCaptureUs = -1;
     mCameraSourceTimeLapse = NULL;
+    mCameraSource = NULL;
     mMetaDataStoredInVideoBuffers = kMetadataBufferTypeInvalid;
     mEncoderProfiles = MediaProfiles::getInstance();
     mRotationDegrees = 0;

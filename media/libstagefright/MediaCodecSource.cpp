@@ -189,7 +189,6 @@ void MediaCodecSource::Puller::stop() {
         interrupt = queue->mReadPendingSince && (queue->mReadPendingSince < ALooper::GetNowUs() - 1000000);
         queue->flush(); // flush any unprocessed pulled buffers
     }
-
 }
 
 void MediaCodecSource::Puller::interruptSource() {
@@ -329,7 +328,7 @@ sp<MediaCodecSource> MediaCodecSource::Create(
         uint32_t flags) {
     sp<MediaCodecSource> mediaSource =
             new MediaCodecSource(looper, format, source, consumer, flags);
-
+    AVUtils::get()->getHFRParams(&mediaSource->mIsHFR, &mediaSource->mBatchSize, format);
     if (mediaSource->init() == OK) {
         return mediaSource;
     }
@@ -422,7 +421,10 @@ MediaCodecSource::MediaCodecSource(
       mFirstSampleSystemTimeUs(-1ll),
       mPausePending(false),
       mFirstSampleTimeUs(-1ll),
-      mGeneration(0) {
+      mGeneration(0),
+      mPrevBufferTimestampUs(0),
+      mIsHFR(false),
+      mBatchSize(0) {
     CHECK(mLooper != NULL);
 
     AString mime;
@@ -685,13 +687,15 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
                     return OK;
                 }
             }
-
+            mInputBufferTimeOffsetUs = AVUtils::get()->overwriteTimeOffset(mIsHFR,
+                mInputBufferTimeOffsetUs, &mPrevBufferTimestampUs, timeUs, mBatchSize);
             timeUs += mInputBufferTimeOffsetUs;
 
             // push decoding time for video, or drift time for audio
             if (mIsVideo) {
                 mDecodingTimeQueue.push_back(timeUs);
                 if (mFlags & FLAG_USE_METADATA_INPUT) {
+                    mbuf->meta_data()->setInt64(kKeyTime, timeUs);
                     AVUtils::get()->addDecodingTimesFromBatch(mbuf, mDecodingTimeQueue);
                 }
             } else {
@@ -710,7 +714,9 @@ status_t MediaCodecSource::feedEncoderInputBuffers() {
 
             sp<ABuffer> inbuf;
             status_t err = mEncoder->getInputBuffer(bufferIndex, &inbuf);
-            if (err != OK || inbuf == NULL) {
+
+            if (err != OK || inbuf == NULL || inbuf->data() == NULL
+                    || mbuf->data() == NULL || mbuf->size() == 0) {
                 mbuf->release();
                 signalEOS(err);
                 break;
@@ -877,12 +883,20 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
 
             sp<ABuffer> outbuf;
             status_t err = mEncoder->getOutputBuffer(index, &outbuf);
-            if (err != OK || outbuf == NULL) {
+            if (err != OK || outbuf == NULL || outbuf->data() == NULL
+                    || outbuf->size() == 0) {
                 signalEOS(err);
                 break;
             }
 
             MediaBuffer *mbuf = new MediaBuffer(outbuf->size());
+            if (mbuf == NULL || mbuf->data() == NULL || mbuf->size() == 0) {
+                if ( mbuf )
+                  mbuf->release();
+                signalEOS(err);
+                break;
+            }
+
             sp<MetaData> meta = mbuf->meta_data();
             AVUtils::get()->setDeferRelease(meta);
             mbuf->setObserver(this);
@@ -1068,6 +1082,14 @@ void MediaCodecSource::onMessageReceived(const sp<AMessage> &msg) {
     }
     default:
         TRESPASS();
+    }
+}
+
+void MediaCodecSource::notifyPerformanceMode() {
+    if (mIsVideo && mEncoder != NULL) {
+        sp<AMessage> params = new AMessage;
+        params->setInt32("qti.request.perf", true);
+        mEncoder->setParameters(params);
     }
 }
 

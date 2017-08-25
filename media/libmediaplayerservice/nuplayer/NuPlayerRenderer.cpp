@@ -1132,10 +1132,10 @@ void NuPlayer::Renderer::onNewAudioMediaTime(int64_t mediaTimeUs) {
         if (nowUs >= mNextAudioClockUpdateTimeUs) {
             int64_t nowMediaUs = mediaTimeUs - getPendingAudioPlayoutDurationUs(nowUs);
             mMediaClock->updateAnchor(nowMediaUs, nowUs, mediaTimeUs);
-            mAnchorTimeMediaUs = mediaTimeUs;
             mUseVirtualAudioSink = false;
             mNextAudioClockUpdateTimeUs = nowUs + kMinimumAudioClockUpdatePeriodUs;
         }
+        mAnchorTimeMediaUs = mediaTimeUs;
     } else {
         int64_t unused;
         if ((mMediaClock->getMediaTime(nowUs, &unused) != OK)
@@ -1792,10 +1792,12 @@ void NuPlayer::Renderer::onAudioTearDown(AudioTearDownReason reason) {
 
 void NuPlayer::Renderer::startAudioOffloadPauseTimeout() {
     if (offloadingAudio()) {
+        int64_t pauseTimeOutDuration = property_get_int64(
+            "audio.offload.pstimeout.secs",(kOffloadPauseMaxUs/1000000)/*default*/);
         mWakeLock->acquire();
         sp<AMessage> msg = new AMessage(kWhatAudioOffloadPauseTimeout, this);
         msg->setInt32("drainGeneration", mAudioOffloadPauseTimeoutGeneration);
-        msg->post(kOffloadPauseMaxUs);
+        msg->post(pauseTimeOutDuration*1000000);
     }
 }
 

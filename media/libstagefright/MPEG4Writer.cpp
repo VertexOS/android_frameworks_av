@@ -70,6 +70,7 @@ static const int64_t kMax32BitFileSize = 0x00ffffffffLL; // 2^32-1 : max FAT32
 static const uint8_t kNalUnitTypeSeqParamSet = 0x07;
 static const uint8_t kNalUnitTypePicParamSet = 0x08;
 static const int64_t kInitialDelayTimeUs     = 700000LL;
+static const nsecs_t kWaitDuration = 500000000LL; //500msec   ~15frames delay
 
 static const char kMetaKey_Version[]    = "com.android.version";
 #ifdef SHOW_MODEL_BUILD
@@ -407,6 +408,10 @@ private:
 
     Track(const Track &);
     Track &operator=(const Track &);
+
+    bool mIsStopping;
+    Mutex mTrackCompletionLock;
+    Condition mTrackCompletionSignal;
 };
 
 MPEG4Writer::MPEG4Writer(int fd)
@@ -436,7 +441,8 @@ MPEG4Writer::MPEG4Writer(int fd)
       mAreGeoTagsAvailable(false),
       mStartTimeOffsetMs(-1),
       mMetaKeys(new AMessage()),
-      mIsAudioAMR(false) {
+      mIsAudioAMR(false),
+      mLastAudioTimeStampUs(0) {
     addDeviceMeta();
 
     // Verify mFd is seekable
@@ -966,8 +972,9 @@ status_t MPEG4Writer::reset() {
     status_t err = OK;
     int64_t maxDurationUs = 0;
     int64_t minDurationUs = 0x7fffffffffffffffLL;
-    for (List<Track *>::iterator it = mTracks.begin();
-         it != mTracks.end(); ++it) {
+    List<Track *>::iterator it = mTracks.end();
+    do {
+        --it;
         status_t status = (*it)->stop();
         if (err == OK && status != OK) {
             err = status;
@@ -980,7 +987,7 @@ status_t MPEG4Writer::reset() {
         if (durationUs < minDurationUs) {
             minDurationUs = durationUs;
         }
-    }
+    } while (it != mTracks.begin());
 
     if (mTracks.size() > 1) {
         ALOGD("Duration from tracks range is [%" PRId64 ", %" PRId64 "] us",
@@ -1586,6 +1593,7 @@ MPEG4Writer::Track::Track(
     }
 
     setTimeScale();
+    mIsStopping = false;
 }
 
 void MPEG4Writer::Track::updateTrackSizeEstimate() {
@@ -1995,6 +2003,17 @@ status_t MPEG4Writer::Track::stop() {
 
     if (mDone) {
         return OK;
+    }
+
+    if (!mIsAudio && mOwner->getLastAudioTimeStamp() &&
+        !mOwner->exceedsFileDurationLimit() &&
+        !mOwner->exceedsFileSizeLimit() &&
+        !mIsMalformed) {
+        Mutex::Autolock lock(mTrackCompletionLock);
+        mIsStopping = true;
+        if (mTrackCompletionSignal.waitRelative(mTrackCompletionLock, kWaitDuration)) {
+            ALOGW("Timed-out waiting for video track to reach final audio timestamp !");
+        }
     }
     mDone = true;
 
@@ -2776,6 +2795,15 @@ status_t MPEG4Writer::Track::threadEntry() {
             }
         }
 
+        if (mIsAudio) {
+            mOwner->setLastAudioTimeStamp(lastTimestampUs);
+        } else if (mIsStopping && timestampUs >= mOwner->getLastAudioTimeStamp()) {
+            ALOGI("Video time (%lld) reached last audio time (%lld)", (long long)timestampUs, (long long)mOwner->getLastAudioTimeStamp());
+            Mutex::Autolock lock(mTrackCompletionLock);
+            mTrackCompletionSignal.signal();
+            break;
+        }
+
     }
 
     if (isTrackMalFormed()) {
@@ -3466,7 +3494,7 @@ void MPEG4Writer::Track::writeCttsBox() {
 
     mOwner->beginBox("ctts");
     mOwner->writeInt32(0);  // version=0, flags=0
-    uint32_t delta = mMinCttsOffsetTimeUs - getStartTimeOffsetScaledTime();
+    int64_t delta = mMinCttsOffsetTimeUs - getStartTimeOffsetScaledTime();
     mCttsTableEntries->adjustEntries([delta](size_t /* ix */, uint32_t (&value)[2]) {
         // entries are <count, ctts> pairs; adjust only ctts
         uint32_t duration = htonl(value[1]); // back to host byte order

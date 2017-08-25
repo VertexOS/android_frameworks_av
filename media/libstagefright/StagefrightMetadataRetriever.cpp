@@ -694,6 +694,10 @@ void StagefrightMetadataRetriever::parseMetaData() {
             continue;
         }
 
+        if (trackMeta == NULL) {
+            continue;
+        }
+
         int64_t durationUs;
         if (trackMeta->findInt64(kKeyDuration, &durationUs)) {
             if (durationUs > maxDurationUs) {
@@ -777,7 +781,8 @@ void StagefrightMetadataRetriever::parseMetaData() {
         if (!strcasecmp(fileMIME, "video/x-matroska")) {
             sp<MetaData> trackMeta = mExtractor->getTrackMetaData(0);
             const char *trackMIME;
-            CHECK(trackMeta->findCString(kKeyMIMEType, &trackMIME));
+            CHECK(trackMeta != NULL
+                  && trackMeta->findCString(kKeyMIMEType, &trackMIME));
 
             if (!strncasecmp("audio/", trackMIME, 6)) {
                 // The matroska file only contains a single audio track,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013 - 2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013 - 2017, The Linux Foundation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -35,6 +35,7 @@
 #include <media/IOMX.h>
 #include <camera/android/hardware/ICamera.h>
 #include <media/mediarecorder.h>
+#include <media/stagefright/MediaCodecSource.h>
 #include "ESQueue.h"
 
 namespace android {
@@ -60,7 +61,8 @@ struct AudioSource;
 struct AVFactory {
     virtual sp<ACodec> createACodec();
     virtual MediaExtractor* createExtendedExtractor(
-            const sp<DataSource> &source, const char *mime, const sp<AMessage> &meta);
+            const sp<DataSource> &source, const char *mime, const sp<AMessage> &meta,
+            const uint32_t flags);
     virtual ElementaryStreamQueue* createESQueue(
             ElementaryStreamQueue::Mode mode, uint32_t flags = 0);
     virtual CameraSource *CreateCameraSourceFromCamera(
@@ -152,6 +154,8 @@ struct AVUtils {
 
     virtual bool isAudioMuxFormatSupported(const char *mime);
     virtual void cacheCaptureBuffers(sp<hardware::ICamera> camera, video_encoder encoder);
+    virtual void getHFRParams(bool*, int32_t*, sp<AMessage>);
+    virtual int64_t overwriteTimeOffset(bool, int64_t, int64_t *, int64_t, int32_t);
     virtual const char *getCustomCodecsLocation();
     virtual const char *getCustomCodecsPerformanceLocation();
 

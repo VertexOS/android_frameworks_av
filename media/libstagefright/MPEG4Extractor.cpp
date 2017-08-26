@@ -1271,6 +1271,7 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             ALOGV("allocated pssh @ %p", pssh.data);
             ssize_t requested = (ssize_t) pssh.datalen;
             if (mDataSource->readAt(data_offset + 24, pssh.data, requested) < requested) {
+                delete[] pssh.data;
                 return ERROR_IO;
             }
             mPssh.push_back(pssh);
@@ -3138,6 +3139,8 @@ status_t MPEG4Extractor::parse3GPPMetaData(off64_t offset, size_t size, int dept
 
         // smallest possible valid UTF-16 string w BOM: 0xfe 0xff 0x00 0x00
         if (size < 6) {
+            delete[] buffer;
+            buffer = NULL;
             return ERROR_MALFORMED;
         }
 

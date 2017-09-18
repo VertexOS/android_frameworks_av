@@ -274,9 +274,9 @@ status_t AudioRecord::set(
     // TODO: add audio hardware input latency here
     if (mTransfer == TRANSFER_CALLBACK ||
             mTransfer == TRANSFER_SYNC) {
-        mLatency = (1000 * mNotificationFramesAct) / sampleRate;
+        mLatency = (1000 * mNotificationFramesAct) / mSampleRate;
     } else {
-        mLatency = (1000 * mFrameCount) / sampleRate;
+        mLatency = (1000 * mFrameCount) / mSampleRate;
     }
     mMarkerPosition = 0;
     mMarkerReached = false;
@@ -875,7 +875,7 @@ audio_io_handle_t AudioRecord::getInputPrivate() const
 
 ssize_t AudioRecord::read(void* buffer, size_t userSize, bool blocking)
 {
-    if (mTransfer != TRANSFER_SYNC) {
+    if ((mTransfer != TRANSFER_SYNC) || !mActive) {
         return INVALID_OPERATION;
     }
 
